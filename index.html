@@ -235,8 +235,13 @@ function calculate(){
 const mat=materials[matSel.value],coil=coilGeometry(),sock=socketGeometry(mat);
 const n=Math.max(1,Math.round(val("coils"))),pCoil=Math.max(0,val("powerCoil")),sf=Math.max(0,val("sf"));
 const totalPower=n*pCoil*sf,ambient=val("ambient"),simTime=Math.max(.1,val("simTime")),warn=Math.max(0,val("warnMargin"));
-const dt=Math.min(0.1,simTime/600);
 const useNX=document.getElementById("calMode").value==="nx";
+// Adaptive time step: keep long simulations responsive in the browser.
+// NX-calibrated mode is an analytical curve, so about 1200 plotted points are enough.
+// Reduced thermal mode uses a smaller integration step for numerical stability.
+const dt = useNX
+  ? Math.max(0.1, simTime/1200)
+  : Math.min(0.5, Math.max(0.05, simTime/10000));
 const run=P=>useNX?nxSeries(P,mat,ambient,simTime,dt):thermalSeries(P,coil,sock,mat,ambient,simTime,dt);
 const series=run(totalPower),end=series[series.length-1],st=classify(end.Ts,mat.limit,warn);
 
@@ -249,13 +254,15 @@ document.getElementById("limitOut").textContent=mat.limit.toFixed(0)+" °C";
 document.getElementById("coilTempOut").textContent=end.Tc.toFixed(2)+" °C";
 document.getElementById("sockTempOut").textContent=end.Ts.toFixed(2)+" °C";
 document.getElementById("marginOut").textContent=st.margin.toFixed(2)+" °C";
-const se=document.getElementById("status");se.className="status "+st.cls;se.textContent=st.text;
+const se=document.getElementById("status");
+se.className="status "+st.cls;
+se.textContent=st.text + (useNX && simTime>60 ? " — note: NX-calibrated mode is extrapolated beyond the 60 s reference" : "");
 
 const target=mat.limit-warn;
 let lo=0,hi=Math.max(totalPower*4,100);
 const endSock=P=>{const s=run(P);return s[s.length-1].Ts};
 while(endSock(hi)<target && hi<1e6)hi*=2;
-for(let i=0;i<45;i++){const mid=(lo+hi)/2;if(endSock(mid)<=target)lo=mid;else hi=mid}
+for(let i=0;i<32;i++){const mid=(lo+hi)/2;if(endSock(mid)<=target)lo=mid;else hi=mid}
 document.getElementById("recPower").textContent=lo.toFixed(1)+" W";
 document.getElementById("recPowerCoil").textContent=(lo/n).toFixed(2)+" W";
 document.getElementById("recCoils").textContent=Math.max(0,Math.floor(lo/Math.max(0.0001,pCoil)))+" coils";
