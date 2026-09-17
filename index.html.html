@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Electromagnetic Thermal Boundary Checker</title>
+<style>
+:root{
+  --bg:#0f172a;--panel:#111827;--panel2:#1f2937;--text:#f8fafc;
+  --muted:#94a3b8;--line:#334155;--accent:#38bdf8;--ok:#22c55e;
+  --warn:#f59e0b;--bad:#ef4444
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,Arial,sans-serif;background:linear-gradient(180deg,#0b1120,#111827);color:var(--text)}
+.wrap{max-width:1200px;margin:auto;padding:24px}
+h1{margin:0 0 6px;font-size:clamp(26px,4vw,42px)}
+.sub{color:var(--muted);margin-bottom:22px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.card{background:rgba(17,24,39,.96);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:0 12px 30px rgba(0,0,0,.18)}
+.card h2{font-size:18px;margin:0 0 14px}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+label{font-size:13px;color:#cbd5e1;display:block;margin-bottom:5px}
+input,select{width:100%;padding:10px 11px;background:#0b1220;color:#fff;border:1px solid #334155;border-radius:10px;outline:none}
+input:focus,select:focus{border-color:var(--accent)}
+button{border:0;border-radius:12px;padding:12px 16px;font-weight:700;cursor:pointer}
+.primary{background:var(--accent);color:#082f49;width:100%;margin-top:14px}
+.results{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.metric{background:#0b1220;border:1px solid #253247;border-radius:12px;padding:12px}
+.metric small{display:block;color:var(--muted);margin-bottom:6px}
+.metric strong{font-size:20px}
+.status{padding:16px;border-radius:14px;font-weight:800;text-align:center;margin-top:12px}
+.safe{background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.5);color:#86efac}
+.warning{background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.5);color:#fcd34d}
+.fail{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.5);color:#fca5a5}
+canvas{width:100%;height:330px;background:#08111f;border-radius:12px;border:1px solid #253247}
+.note{font-size:12px;color:var(--muted);line-height:1.45;margin-top:12px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:8px;border-bottom:1px solid #253247;text-align:left}
+th{color:#cbd5e1}
+@media(max-width:850px){.grid{grid-template-columns:1fr}.fields{grid-template-columns:1fr}.results{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Electromagnetic Thermal Boundary Checker</h1>
+  <div class="sub">Parametric coil + socket estimator, material comparison, transient temperature graph, and safe-working recommendation.</div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>1. Coil & electrical inputs</h2>
+      <div class="fields">
+        <div><label>Wire diameter (mm)</label><input id="wireDia" type="number" step="0.01" value="0.4"></div>
+        <div><label>Turns per coil</label><input id="turns" type="number" value="500"></div>
+        <div><label>Core diameter (mm)</label><input id="coreDia" type="number" step="0.1" value="4"></div>
+        <div><label>Winding length (mm)</label><input id="coreLen" type="number" step="0.1" value="4.6"></div>
+        <div><label>Active coils</label><input id="coils" type="number" value="80"></div>
+        <div><label>Power per coil (W)</label><input id="powerCoil" type="number" step="0.1" value="9.6"></div>
+      </div>
+
+      <h2 style="margin-top:20px">2. Socket / holder inputs</h2>
+      <div class="fields">
+        <div><label>Length (mm)</label><input id="sockL" type="number" step="0.1" value="57.2"></div>
+        <div><label>Width (mm)</label><input id="sockW" type="number" step="0.1" value="51.2"></div>
+        <div><label>Thickness (mm)</label><input id="sockT" type="number" step="0.1" value="5"></div>
+        <div><label>Socket material</label><select id="material"></select></div>
+      </div>
+
+      <h2 style="margin-top:20px">3. Environment & safety</h2>
+      <div class="fields">
+        <div><label>Ambient temperature (°C)</label><input id="ambient" type="number" step="0.1" value="23"></div>
+        <div><label>Simulation time (s)</label><input id="simTime" type="number" value="60"></div>
+        <div><label>Convection coefficient h (W/m²K)</label><input id="h" type="number" step="0.1" value="8"></div>
+        <div><label>Safety factor on power</label><input id="sf" type="number" step="0.05" value="1"></div>
+        <div><label>Warning margin (°C)</label><input id="warnMargin" type="number" step="1" value="10"></div>
+        <div><label>Model mode</label>
+          <select id="calMode">
+            <option value="nx">NX-calibrated estimate</option>
+            <option value="thermal">Reduced thermal model</option>
+          </select>
+        </div>
+      </div>
+      <button class="primary" onclick="calculate()">Calculate thermal condition</button>
+      <div class="note">NX-calibrated mode uses the thesis reference case: 768 W total, 23 °C ambient, 60 s, 31.183 °C coil maximum and 28.1 °C monitored ABS socket temperature. Other cases are predictions, not NX simulations.</div>
+    </div>
+
+    <div class="card">
+      <h2>Calculated results</h2>
+      <div class="results">
+        <div class="metric"><small>Wire length / coil</small><strong id="wireOut">–</strong></div>
+        <div class="metric"><small>Copper mass / coil</small><strong id="massCuOut">–</strong></div>
+        <div class="metric"><small>Coil resistance @20 °C</small><strong id="resOut">–</strong></div>
+        <div class="metric"><small>Socket mass</small><strong id="massSockOut">–</strong></div>
+        <div class="metric"><small>Total design power</small><strong id="powerOut">–</strong></div>
+        <div class="metric"><small>Material limit</small><strong id="limitOut">–</strong></div>
+        <div class="metric"><small>Coil temperature @ end</small><strong id="coilTempOut">–</strong></div>
+        <div class="metric"><small>Socket temperature @ end</small><strong id="sockTempOut">–</strong></div>
+        <div class="metric"><small>Thermal margin</small><strong id="marginOut">–</strong></div>
+      </div>
+      <div id="status" class="status">Enter values and calculate</div>
+
+      <h2 style="margin-top:20px">Recommended working condition</h2>
+      <table>
+        <tr><th>Maximum recommended total power</th><td id="recPower">–</td></tr>
+        <tr><th>Maximum recommended power / coil</th><td id="recPowerCoil">–</td></tr>
+        <tr><th>Maximum safe continuous time</th><td id="recTime">–</td></tr>
+        <tr><th>Maximum active coils at present W/coil</th><td id="recCoils">–</td></tr>
+        <tr><th>Geometry check</th><td id="geomCheck">–</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:18px">
+    <h2>Temperature vs time</h2>
+    <canvas id="chart" width="1100" height="360"></canvas>
+    <div class="note">Predicted coil and socket temperature. Dashed line = selected material temperature limit.</div>
+  </div>
+
+  <div class="card" style="margin-top:18px">
+    <h2>Material database used by this prototype</h2>
+    <div style="overflow:auto"><table id="matTable"></table></div>
+    <div class="note">Engineering defaults only. For thesis publication or industrial use, replace these with grade-specific manufacturer values and the exact applicable service-temperature criterion.</div>
+  </div>
+</div>
+
+<script>
+const materials={
+"PLA":{rho:1240,cp:1800,k:0.13,limit:57,category:"Polymer",limitType:"HDT/default"},
+"PETG":{rho:1280,cp:1200,k:0.20,limit:69,category:"Polymer",limitType:"HDT/default"},
+"ABS":{rho:1050,cp:1990,k:0.16,limit:87,category:"Polymer",limitType:"HDT/default"},
+"ASA":{rho:1070,cp:1500,k:0.17,limit:100,category:"Polymer",limitType:"HDT/default"},
+"PC":{rho:1200,cp:1540,k:0.20,limit:117,category:"Polymer",limitType:"HDT/default"},
+"PEEK":{rho:1300,cp:1300,k:0.25,limit:143,category:"High-performance polymer",limitType:"conservative default"},
+"AlSi10Mg":{rho:2670,cp:900,k:120,limit:200,category:"Metal AM",limitType:"design default"},
+"316L":{rho:8000,cp:500,k:15,limit:400,category:"Metal AM",limitType:"design default"},
+"Ti-6Al-4V":{rho:4430,cp:560,k:6.7,limit:350,category:"Metal AM",limitType:"reference service"},
+"Inconel 718":{rho:8190,cp:435,k:11.4,limit:700,category:"Metal AM",limitType:"reference service"}
+};
+
+const matSel=document.getElementById("material");
+Object.keys(materials).forEach(m=>{const o=document.createElement("option");o.value=m;o.textContent=m;matSel.appendChild(o)});
+matSel.value="ABS";
+
+function renderMaterialTable(){
+let h="<tr><th>Material</th><th>Category</th><th>ρ kg/m³</th><th>cp J/kgK</th><th>k W/mK</th><th>Limit °C</th><th>Limit basis</th></tr>";
+for(const [n,m] of Object.entries(materials)){
+h+=`<tr><td>${n}</td><td>${m.category}</td><td>${m.rho}</td><td>${m.cp}</td><td>${m.k}</td><td>${m.limit}</td><td>${m.limitType}</td></tr>`;
+}
+document.getElementById("matTable").innerHTML=h;
+}
+renderMaterialTable();
+const val=id=>parseFloat(document.getElementById(id).value);
+
+function coilGeometry(){
+const d=val("wireDia")/1000,N=Math.max(1,Math.round(val("turns")));
+const Dc=val("coreDia")/1000,Lc=val("coreLen")/1000;
+const turnsLayer=Math.max(1,Math.floor(Lc/d));
+const layers=Math.ceil(N/turnsLayer);
+let remain=N,length=0;
+for(let j=1;j<=layers;j++){
+const Nj=Math.min(turnsLayer,remain),Dj=Dc+(2*j-1)*d;
+length+=Nj*Math.PI*Dj;remain-=Nj;
+}
+const area=Math.PI*d*d/4,volume=area*length,rhoCu=8960,cpCu=385,rhoElec=1.68e-8;
+const mass=volume*rhoCu,R=rhoElec*length/area,Dout=(Dc+2*layers*d)*1000;
+return {length,mass,R,C:mass*cpCu,Dout};
+}
+
+function socketGeometry(mat){
+const L=val("sockL")/1000,W=val("sockW")/1000,T=val("sockT")/1000;
+const V=L*W*T,mass=mat.rho*V,C=mass*mat.cp,Aexp=L*W;
+return {L,W,T,V,mass,C,Aexp};
+}
+
+function nxSeries(totalPower,mat,ambient,simTime,dt){
+const Pref=768,TaRef=23,tRef=60,dTcoilRef=31.183-TaRef,dTsockRef=28.1-TaRef;
+const abs=materials["ABS"];
+const volCapRatio=(abs.rho*abs.cp)/(mat.rho*mat.cp);
+const kRatio=Math.pow(abs.k/mat.k,0.18);
+const matFactor=Math.max(0.15,Math.min(3.0,volCapRatio*kRatio));
+const powerRatio=totalPower/Pref,tauCoil=34,tauSock=42;
+const coilScale=dTcoilRef/(1-Math.exp(-tRef/tauCoil));
+const sockScale=dTsockRef/(1-Math.exp(-tRef/tauSock));
+const out=[];
+for(let t=0;t<=simTime+1e-9;t+=dt){
+out.push({
+t,
+Tc:ambient+coilScale*powerRatio*(1-Math.exp(-t/tauCoil)),
+Ts:ambient+sockScale*powerRatio*matFactor*(1-Math.exp(-t/tauSock))
+});
+}
+return out;
+}
+
+function thermalSeries(totalPower,coil,sock,mat,ambient,simTime,dt){
+const absK=materials["ABS"].k,RcsBase=3.2,Rcs=RcsBase*(absK/mat.k);
+const h=val("h"),Rconv=1/Math.max(1e-9,h*sock.Aexp);
+const n=Math.max(1,Math.round(val("coils")));
+const Cc=Math.max(1e-6,coil.C*n),Cs=Math.max(1e-6,sock.C);
+let Tc=ambient,Ts=ambient;const out=[];
+for(let t=0;t<=simTime+1e-9;t+=dt){
+out.push({t,Tc,Ts});
+const Qcs=(Tc-Ts)/Rcs,Qsa=(Ts-ambient)/Rconv;
+const dTc=(totalPower-Qcs)/Cc,dTs=(Qcs-Qsa)/Cs;
+Tc+=dTc*dt;Ts+=dTs*dt;
+}
+return out;
+}
+
+function classify(temp,limit,warn){
+const margin=limit-temp;
+if(margin<=0)return{text:"BOUNDARY CONDITION NOT SATISFIED",cls:"fail",margin};
+if(margin<=warn)return{text:"WARNING — approaching material limit",cls:"warning",margin};
+return{text:"SAFE — boundary condition satisfied",cls:"safe",margin};
+}
+
+function drawChart(series,limit){
+const c=document.getElementById("chart"),ctx=c.getContext("2d"),W=c.width,H=c.height,p={l:60,r:20,t:25,b:45};
+ctx.clearRect(0,0,W,H);ctx.fillStyle="#08111f";ctx.fillRect(0,0,W,H);
+const maxT=Math.max(limit,...series.map(q=>Math.max(q.Tc,q.Ts)))+5;
+const minT=Math.min(...series.map(q=>Math.min(q.Tc,q.Ts)))-2;
+const maxTime=series[series.length-1].t||1;
+const x=t=>p.l+(t/maxTime)*(W-p.l-p.r),y=T=>H-p.b-((T-minT)/(maxT-minT))*(H-p.t-p.b);
+ctx.strokeStyle="#334155";ctx.lineWidth=1;ctx.fillStyle="#94a3b8";ctx.font="12px system-ui";
+for(let i=0;i<=5;i++){const T=minT+(maxT-minT)*i/5,yy=y(T);ctx.beginPath();ctx.moveTo(p.l,yy);ctx.lineTo(W-p.r,yy);ctx.stroke();ctx.fillText(T.toFixed(1)+"°C",8,yy+4)}
+for(let i=0;i<=6;i++){const t=maxTime*i/6,xx=x(t);ctx.beginPath();ctx.moveTo(xx,p.t);ctx.lineTo(xx,H-p.b);ctx.stroke();ctx.fillText(t.toFixed(0)+"s",xx-10,H-18)}
+const line=(key,stroke)=>{ctx.strokeStyle=stroke;ctx.lineWidth=3;ctx.setLineDash([]);ctx.beginPath();series.forEach((q,i)=>{const xx=x(q.t),yy=y(q[key]);i?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy)});ctx.stroke()};
+line("Tc","#38bdf8");line("Ts","#22c55e");
+ctx.strokeStyle="#ef4444";ctx.lineWidth=2;ctx.setLineDash([8,7]);ctx.beginPath();ctx.moveTo(p.l,y(limit));ctx.lineTo(W-p.r,y(limit));ctx.stroke();ctx.setLineDash([]);
+ctx.fillStyle="#ef4444";ctx.fillText("Material limit",W-118,y(limit)-7);
+ctx.fillStyle="#38bdf8";ctx.fillRect(W-240,18,18,4);ctx.fillStyle="#cbd5e1";ctx.fillText("Coil",W-215,25);
+ctx.fillStyle="#22c55e";ctx.fillRect(W-160,18,18,4);ctx.fillStyle="#cbd5e1";ctx.fillText("Socket",W-135,25);
+}
+
+function calculate(){
+const mat=materials[matSel.value],coil=coilGeometry(),sock=socketGeometry(mat);
+const n=Math.max(1,Math.round(val("coils"))),pCoil=Math.max(0,val("powerCoil")),sf=Math.max(0,val("sf"));
+const totalPower=n*pCoil*sf,ambient=val("ambient"),simTime=Math.max(.1,val("simTime")),warn=Math.max(0,val("warnMargin"));
+const dt=Math.min(0.1,simTime/600);
+const useNX=document.getElementById("calMode").value==="nx";
+const run=P=>useNX?nxSeries(P,mat,ambient,simTime,dt):thermalSeries(P,coil,sock,mat,ambient,simTime,dt);
+const series=run(totalPower),end=series[series.length-1],st=classify(end.Ts,mat.limit,warn);
+
+document.getElementById("wireOut").textContent=coil.length.toFixed(2)+" m";
+document.getElementById("massCuOut").textContent=(coil.mass*1000).toFixed(1)+" g";
+document.getElementById("resOut").textContent=coil.R.toFixed(2)+" Ω";
+document.getElementById("massSockOut").textContent=(sock.mass*1000).toFixed(1)+" g";
+document.getElementById("powerOut").textContent=totalPower.toFixed(1)+" W";
+document.getElementById("limitOut").textContent=mat.limit.toFixed(0)+" °C";
+document.getElementById("coilTempOut").textContent=end.Tc.toFixed(2)+" °C";
+document.getElementById("sockTempOut").textContent=end.Ts.toFixed(2)+" °C";
+document.getElementById("marginOut").textContent=st.margin.toFixed(2)+" °C";
+const se=document.getElementById("status");se.className="status "+st.cls;se.textContent=st.text;
+
+const target=mat.limit-warn;
+let lo=0,hi=Math.max(totalPower*4,100);
+const endSock=P=>{const s=run(P);return s[s.length-1].Ts};
+while(endSock(hi)<target && hi<1e6)hi*=2;
+for(let i=0;i<45;i++){const mid=(lo+hi)/2;if(endSock(mid)<=target)lo=mid;else hi=mid}
+document.getElementById("recPower").textContent=lo.toFixed(1)+" W";
+document.getElementById("recPowerCoil").textContent=(lo/n).toFixed(2)+" W";
+document.getElementById("recCoils").textContent=Math.max(0,Math.floor(lo/Math.max(0.0001,pCoil)))+" coils";
+let safeTime="> "+simTime.toFixed(0)+" s";
+if(end.Ts>=target){const idx=series.findIndex(q=>q.Ts>=target);safeTime=(idx>=0?series[idx].t:simTime).toFixed(1)+" s"}
+document.getElementById("recTime").textContent=safeTime;
+document.getElementById("geomCheck").textContent=`Calculated coil OD ≈ ${coil.Dout.toFixed(1)} mm`;
+drawChart(series,mat.limit);
+}
+calculate();
+</script>
+</body>
+</html>
