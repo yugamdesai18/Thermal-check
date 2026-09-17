@@ -151,18 +151,75 @@ renderMaterialTable();
 const val=id=>parseFloat(document.getElementById(id).value);
 
 function coilGeometry(){
-const d=val("wireDia")/1000,N=Math.max(1,Math.round(val("turns")));
-const Dc=val("coreDia")/1000,Lc=val("coreLen")/1000;
-const turnsLayer=Math.max(1,Math.floor(Lc/d));
-const layers=Math.ceil(N/turnsLayer);
-let remain=N,length=0;
-for(let j=1;j<=layers;j++){
-const Nj=Math.min(turnsLayer,remain),Dj=Dc+(2*j-1)*d;
-length+=Nj*Math.PI*Dj;remain-=Nj;
-}
-const area=Math.PI*d*d/4,volume=area*length,rhoCu=8960,cpCu=385,rhoElec=1.68e-8;
-const mass=volume*rhoCu,R=rhoElec*length/area,Dout=(Dc+2*layers*d)*1000;
-return {length,mass,R,C:mass*cpCu,Dout};
+  const d = val("wireDia") / 1000;      // wire diameter, m
+  const N = Math.max(1, Math.round(val("turns")));
+
+  const Dc = val("coreDia") / 1000;     // core diameter, m
+  const Lc = val("coreLen") / 1000;     // winding length, m
+
+  // How many turns physically fit along the core length
+  const turnsPerLayer = Math.floor(Lc / d);
+
+  if (turnsPerLayer < 1) {
+    throw new Error("Wire diameter is larger than the available winding length.");
+  }
+
+  // Number of radial winding layers
+  const layers = Math.ceil(N / turnsPerLayer);
+
+  let remainingTurns = N;
+  let totalWireLength = 0;
+
+  // Calculate the wire length layer-by-layer
+  for (let j = 1; j <= layers; j++) {
+
+    const turnsThisLayer = Math.min(turnsPerLayer, remainingTurns);
+
+    // Mean diameter of this winding layer
+    const layerDiameter = Dc + (2 * j - 1) * d;
+
+    // Circumference of one turn in this layer
+    const turnLength = Math.PI * layerDiameter;
+
+    // Add wire length for this layer
+    totalWireLength += turnsThisLayer * turnLength;
+
+    remainingTurns -= turnsThisLayer;
+  }
+
+  // Final outside diameter of complete winding
+  const outerDiameter = Dc + 2 * layers * d;
+
+  // Copper cross-sectional area
+  const wireArea = Math.PI * d * d / 4;
+
+  // Copper volume
+  const copperVolume = wireArea * totalWireLength;
+
+  const copperDensity = 8960;           // kg/m³
+  const copperSpecificHeat = 385;       // J/kgK
+  const copperResistivity = 1.68e-8;    // ohm·m
+
+  // Copper mass
+  const copperMass = copperVolume * copperDensity;
+
+  // Electrical resistance at approx. 20 °C
+  const resistance20 =
+    copperResistivity * totalWireLength / wireArea;
+
+  // Thermal capacitance
+  const thermalCapacitance =
+    copperMass * copperSpecificHeat;
+
+  return {
+    turnsPerLayer,
+    layers,
+    length: totalWireLength,
+    mass: copperMass,
+    R: resistance20,
+    C: thermalCapacitance,
+    Dout: outerDiameter * 1000
+  };
 }
 
 function socketGeometry(mat){
@@ -254,6 +311,11 @@ document.getElementById("limitOut").textContent=mat.limit.toFixed(0)+" °C";
 document.getElementById("coilTempOut").textContent=end.Tc.toFixed(2)+" °C";
 document.getElementById("sockTempOut").textContent=end.Ts.toFixed(2)+" °C";
 document.getElementById("marginOut").textContent=st.margin.toFixed(2)+" °C";
+  document.getElementById("turnsLayerOut").textContent =
+  coil.turnsPerLayer;
+
+document.getElementById("layersOut").textContent =
+  coil.layers;
 const se=document.getElementById("status");
 se.className="status "+st.cls;
 se.textContent=st.text + (useNX && simTime>60 ? " — note: NX-calibrated mode is extrapolated beyond the 60 s reference" : "");
